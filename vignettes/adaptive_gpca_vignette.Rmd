@@ -1,0 +1,137 @@
+---
+title: "Adaptive gPCA Vignette"
+author: "Julia Fukuyama"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Adaptive gPCA Vignette}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+n---
+
+# Adaptive gPCA Vignette
+
+```{r, echo = FALSE}
+library(knitr)
+opts_chunk$set(fig.width = 8, fig.height = 4)
+```
+
+Here we will describe how to use the adaptiveGPCA package. The package
+implements the methods for structured dimensionality reduction
+described in
+[Fukuyama, J. (2017)](https://arxiv.org/abs/1702.00501). The general
+idea is to obtain a low-dimensional representation of the data,
+similar to that given by PCA, which incorporates side information
+about the relationships between the variables. The output is similar
+to a PCA biplot, but the variable loadings are regularized so that
+similar variables are encouraged to have similar loadings on the
+principal axes.
+
+There are two main ways of using this package. The function
+`adaptivegpca` will choose how much to regularize the variables
+according to the similarities between them, while the function
+`gpcaFullFamily` produces analogous output for a range of regularization
+parameters. With this function, the results for the different
+regularization parameters are inspected with the `visualizeFullFamily`
+function, and the desired parameter is chosen manually. We will
+illustrate both methods in this vignette. 
+
+The data set we will use to illustrate the functionality of this
+package is an antibiotic time course study[^1]. In this experiment, three subjects were
+given two courses of antibiotics, and the abundances of bacteria in
+the gut microbiome were measured before, during, and after each course
+of antibiotics. The data is stored in a `phyloseq` object called
+`AntibioticPhyloseq`, which contains variance-stabilized and centered
+abundances on the `otu_table` slot, a phylogenetic tree describing the
+relationships between the bacterial species measured in the `phy_tree`
+slot, and information about the samples in the `sample_data` slot. We
+want a low-dimensional representation of the samples which takes into
+account the phylogenetic similarities between the bacteria, which is
+what adaptive gPCA will provide for us. 
+
+
+[^1]: Dethlefsen, L., and D. A. Relman. "Microbes and health sackler
+colloquium: incomplete recovery and individualized responses of the
+human distal gut microbiota to repeated antibiotic perturbation." Proc
+Natl Acad Sci USA 108. Suppl 1 (2010): 4554-4561.
+
+The first step is to load the required libraries and data. 
+```{r}
+library(adaptiveGPCA)
+library(ggplot2)
+library(phyloseq)
+data(AntibioticPhyloseq)
+theme_set(theme_bw())
+```
+
+Next, we create the inputs required for the `adaptivegpca`
+function. If we have a `phyloseq` object, the function
+`processPhyloseq` will create a centered data matrix (found in `pp$X`
+below) and a similarity matrix based on the phylogeny (found in `pp$Q`
+below), which can then be passed to the `adaptivegpca` function. If
+you have another kind of data, you will need to create a centered data
+matrix and a matrix describing the similarities between the variables.
+```{r}
+pp = processPhyloseq(AntibioticPhyloseq)
+```
+
+Next, we pass our data matrix and our similarity matrix to the
+`adaptivegpca` function. The option `k = 2` means that we want a
+two-dimensional representation of the data. 
+```{r}
+out.agpca = adaptivegpca(pp$X, pp$Q, k = 2)
+```
+
+Alternately, if we want to use the shiny interface to choose the
+regularization parameter, we can first use the `gpcaFullFamily`
+function to create a full set of ordinations and then use the
+`visualizeFullFamily` function to visualize the biplots at each value of
+the constraint.
+
+`gpcaFullFamily` takes the same arguments as `adaptivegpca`. 
+
+The `visualizeFullFamily` function is a shiny "gadget",
+and so will open a browser window where you can visualize the data set
+for a range of regularization parameters. Clicking "done" in this window will give as
+output an object of the same format as that given by the `adaptivegpca`
+function, the difference being that the value of `r` was chosen manually
+instead of automatically. (The code below is only included as an
+example and not evaluated in the vignette.) If you run this yourself
+it will take little bit of time --- on my laptop it takes about a
+minute and a half for the `gpcaFullFamily` function to run. The
+`sample_data`/`sample_mapping` and `var_data`/`var_mapping` arguments
+allow you to customize the visualization. Without these arguments, the
+first two axes will be plotted for both the samples and the
+variables. If you include these arguments, you can customize the plots
+by providing an aesthetic mapping for ggplot to use. 
+```{r, eval = FALSE}
+out.ff = gpcaFullFamily(pp$X, pp$Q, k = 2)
+out.agpca = visualizeFullFamily(out.ff,
+                    sample_data = sample_data(AntibioticPhyloseq),
+                    sample_mapping = aes(x = Axis1, y = Axis2, color = condition),
+                    var_data = tax_table(AntibioticPhyloseq),
+                    var_mapping = aes(x = Axis1, y = Axis2, color = Phylum))
+```
+
+In either case, we can plot the results. As desired, we get a nice
+biplot representation where similar species are located in similar
+positions. The sample scores on the principal axes are located in
+`out.agpca$U` and the loadings of the variables on the principal axes
+are located in `out.agpca$QV`. `out.agpca$r` gives the value of the
+regularization parameter: values closer to 0 mean that there is only a
+small amount of regularization, and 1 is the maximal amount of
+regularization. 
+```{r}
+ggplot(data.frame(out.agpca$U, sample_data(AntibioticPhyloseq))) +
+    geom_point(aes(x = Axis1, y = Axis2, color = type, shape = ind))
+ggplot(data.frame(out.agpca$QV, tax_table(AntibioticPhyloseq))) +
+    geom_point(aes(x = Axis1, y = Axis2, color = Phylum))
+out.agpca$r
+```
+
+Finally, note that the `processPhyloseq` function also has an argument `ca`
+(for correspondence analysis). This should be used with phyloseq
+objects containing raw counts, and it will process a phyloseq object
+so as to do an adaptive gPCA version of correspondence analysis (this
+entails transforming counts to relative abunadnces, computing sample
+weights based on the overall counts for the samples, and finally doing
+a weighted centering of the relative abundances).
