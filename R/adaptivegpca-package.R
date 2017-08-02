@@ -9,9 +9,9 @@
 #' @param Q A \eqn{p \times p} similarity matrix on the variables defining
 #' an inner product on the rows of \code{X}, can also be given as an
 #' eigendecomposition (formatted as the output from \code{eigen}).
+#' @param k The number of components to return.
 #' @param weights A vector of length \eqn{n} containing weights for
 #' the rows of \code{X}.
-#' @param k The number of components to return.
 #' @return A list containing the row/sample scores (\code{U}), the
 #' variable loadings (\code{QV}), the proportion of variance explained
 #' by each of the principal components (\code{vars}), the value of
@@ -20,7 +20,7 @@
 #' data(AntibioticSmall)
 #' out.agpca = adaptivegpca(AntibioticSmall$X, AntibioticSmall$Q, k = 2)
 #' @export
-adaptivegpca <- function(X, Q, weights = rep(1, nrow(X)), k = 2) {
+adaptivegpca <- function(X, Q, k = 2, weights = rep(1, nrow(X))) {
     if(is.matrix(Q)) {
         Qeig = eigen(Q, symmetric = TRUE)
     } else if(is.list(Q) & !is.null(Q$vectors) & !is.null(Q$values)) {
@@ -36,10 +36,89 @@ adaptivegpca <- function(X, Q, weights = rep(1, nrow(X)), k = 2) {
     sigma2 = auto$sigma^2
     evals = (rep(1/(sigma2 * (1-r)), ncol(X)) + (sigma2 * r)^(-1) * Qeig$values^(-1))^(-1)
     out.gpca = gpcaEvecs(X, evecs, evals, weights, k)
-    return(list(V = out.gpca$V, U = out.gpca$U, QV = out.gpca$QV,
+    out = list(V = out.gpca$V, U = out.gpca$U, QV = out.gpca$QV,
                 lambda = out.gpca$lambda, vars = out.gpca$vars,
-                r = r, evals = evals, sig = auto$sigma))
+               r = r, evals = evals, sig = auto$sigma)
+    class(out) = "adaptivegpca"
+    return(out)
 }
+
+
+#' Print an adaptivegpca object
+#'
+#' @param x \code{adaptivegpca} object.
+#' @param ... Not used.
+#' @method print adaptivegpca
+#' @export
+print.adaptivegpca <- function(x, ...) {
+    cat("An object of class adaptivegpca\n")
+    cat("-------------------------------\n")
+    cat(paste("Number of axes:", ncol(x$V), "\n"))
+    cat(paste("Value of r chosen:", round(x$r, digits = 3), "\n"))
+    cat(paste("Fraction of variance explained\nby first", ncol(x$V), "axes:\n"))
+    cat(round(x$vars[1:ncol(x$V)], digits = 3), "\n")
+}
+
+#' Plot an adaptivegpca object
+#'
+#' Plots the output from \code{\link{adaptivegpca}}, either a scree
+#' plot, the samples, or the variables.
+#' 
+#' @param x An object of class \code{adaptivegpca}
+#' @param type What type of plot to make. \code{scree} will make a
+#'     scree plot showing the eigenvalues, \code{samples} will plot
+#'     the samples, and \code{variables} will plot the variables.
+#' @param axes Which axes to plot. 
+#' @param ... Not used.
+#' @export
+#' @importFrom ggplot2 ggplot aes_string geom_point ylab xlab
+#' @examples
+#' data(AntibioticSmall)
+#' out.agpca = adaptivegpca(AntibioticSmall$X, AntibioticSmall$Q, k = 2)
+#' plot(out.agpca)
+#' plot(out.agpca, type = "samples")
+#' plot(out.agpca, type = "variables")
+#' @method plot adaptivegpca
+plot.adaptivegpca <- function(x, type = c("scree", "samples", "variables"), axes = c(1,2), ...) {
+    type = match.arg(type)
+    if(type == "scree") {
+        p = ggplot(data.frame(index = seq_along(x$vars), evals = x$vars), aes_string(x = "index", y = "evals")) +
+            geom_point() + ylab("Fraction of variance explained") + xlab("Axis")
+    } else {
+        check_axes(axes, x)
+        axis.names = paste("Axis", axes, sep = "")
+        axis.labels = paste("Axis ", axes, ": ", round(x$vars[axes] * 100, digits = 1), "%", sep = "")
+        if(type == "samples") {
+            p = ggplot(data.frame(x$U[,axes])) +
+                geom_point(aes_string(x = axis.names[1], y = axis.names[2])) +
+                xlab(axis.labels[1]) + ylab(axis.labels[2])
+        } else if(type == "variables") {
+            p = ggplot(data.frame(x$QV[,axes])) +
+                geom_point(aes_string(x = axis.names[1], y = axis.names[2])) +
+                xlab(axis.labels[1]) + ylab(axis.labels[2])
+        } else {
+            stop("Not a valid plotting type.")
+        }
+    }
+    return(p)
+}
+
+
+#' Check that the axes specified are valid
+#' @param axes A set of user-specified axes.
+#' @param x Object of class \code{adaptivegpca}.
+#' @keywords internal
+check_axes <- function(axes, x) {
+    ## check that the axes are all integers
+    if(any(axes != floor(axes)))
+        stop("Please specify axes as whole numbers.")
+    if(length(axes) != 2)
+        stop("Please specify two axes to plot.")
+    if(max(axes) > ncol(x$V) | min(axes) < 1)
+        stop(paste("Please specify axes within 1 and", ncol(x$V)))
+    return(TRUE)
+}
+    
 
 #' Make a sequence of ordinations
 #'
